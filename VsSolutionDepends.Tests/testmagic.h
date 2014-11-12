@@ -1,6 +1,6 @@
 #pragma once
 
-#include "..\VsSolutionDepends\vs.h"
+#include "../VsSolutionDependsLib/vs.h"
 #include "CppUnitTest.h"
 
 namespace Microsoft { namespace VisualStudio { namespace CppUnitTestFramework {

@@ -1,5 +1,6 @@
 #include "vs.h"
 #include "filesystem.h"
+#include "log.h"
 
 #include <nowide/fstream.hpp>
 #include <pugixml.hpp>
@@ -16,7 +17,7 @@ VsAssembly::~VsAssembly()
 
 }
 
-VsAssembly::VsAssembly(const std::string& filePath/*, VsProjectPtr parentProject*/) : FilePath(filePath)/*, ParentProject(parentProject)*/
+VsAssembly::VsAssembly(const boost::filesystem::path& filePath) : FilePath(filePath)
 {
 
 }
@@ -26,7 +27,7 @@ VsAssemblyReference::~VsAssemblyReference()
 
 }
 
-VsAssemblyReference::VsAssemblyReference(const std::string& hintPath, std::unique_ptr<VsAssembly> assembly) : HintPath(hintPath), Assembly(std::move(assembly))
+VsAssemblyReference::VsAssemblyReference(const boost::filesystem::path& hintPath, std::unique_ptr<VsAssembly> assembly) : HintPath(hintPath), Assembly(std::move(assembly))
 {
 
 }
@@ -36,16 +37,10 @@ VsProject::~VsProject()
 
 }
 
-VsProject::VsProject(const std::string& filePath, VsSolutionPtr parentSolution) : FilePath(filePath), ParentSolution(parentSolution)
+VsProject::VsProject(const boost::filesystem::path& filePath, VsSolutionPtr parentSolution) : FilePath(filePath), ParentSolution(parentSolution)
 {
     create();
 }
-
-/*
-VsProject::VsProject(const std::string& filePath, VsSolution* parentSolution) : FilePath(filePath), ParentSolution(std::move(VsSolutionPtr(parentSolution)))
-{
-    create();
-}*/
 
 void VsProject::create()
 {
@@ -68,7 +63,7 @@ void VsProject::create()
 
 void VsProject::loadAssemblyReferences(const pugi::xml_document& doc)
 {
-    namespace fs = std::tr2::sys;
+    namespace fs = boost::filesystem;
     const auto& projectDir = getParentDir();
 
     // Exclude the assemblies that are in the GAC (Global Assembly Cache), such as framework assemblies
@@ -78,11 +73,7 @@ void VsProject::loadAssemblyReferences(const pugi::xml_document& doc)
         // Also, we must not trust that the file (generated output) exists
         fs::path assemblyHintPath = xpathNode.node().first_child().value();
         // Make the hint path absolute
-        assemblyHintPath = normalize(fs::complete(assemblyHintPath, projectDir));
-
-        if (assemblyHintPath.string().find("AppSettings") != std::string::npos) {
-            __debugbreak();
-        }
+        assemblyHintPath = fs::normalize(fs::complete(assemblyHintPath, projectDir));
 
         // If this assembly doesn't have a parent project, we have no use for it
         fs::path parentProjectFilePath;
@@ -90,21 +81,22 @@ void VsProject::loadAssemblyReferences(const pugi::xml_document& doc)
             continue;
         }
 
-        // We can't truly know the real assembly file path
+        // We can't truly know the real assembly file path, so don't blindly make it the actual path to the file
+        // TODO: Perhaps figure out the real location of the assembly
         auto assembly = std::make_unique<VsAssembly>("");
         auto assemblyReference = std::make_unique<VsAssemblyReference>(assemblyHintPath.string(), std::move(assembly));
         AssemblyReferences.emplace_back(std::move(assemblyReference));
     }
 }
 
-std::tr2::sys::path VsProject::getParentDir() const
+boost::filesystem::path VsProject::getParentDir() const
 {
     return FilePath.parent_path();
 }
 
 void VsSolution::LoadProjects(VsSolutionPtr selfPtr)
 {
-    namespace fs = std::tr2::sys;
+    namespace fs = boost::filesystem;
     std::deque<fs::path> files;
 
     // Find projects in the solution
@@ -122,7 +114,7 @@ void VsSolution::LoadProjects(VsSolutionPtr selfPtr)
         const fs::path filePath(solutionDir / relativeFilePath);
 
         // Filter by file extension
-        std::string extension = filePath.extension();
+        std::string extension = filePath.extension().string();
         std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
         if (extension != ".csproj") {
             continue;
@@ -133,7 +125,7 @@ void VsSolution::LoadProjects(VsSolutionPtr selfPtr)
             continue;
         }
 
-        auto project = VsFileRepo::CreateProject(filePath, selfPtr);
+        auto project = VsFileRepo::CreateProject(filePath.string(), selfPtr);
         Projects.emplace_back(project);
     }
 }
@@ -143,11 +135,11 @@ VsSolution::~VsSolution()
 
 }
 
-VsSolution::VsSolution(const std::string& filePath) : FilePath(filePath)
+VsSolution::VsSolution(const boost::filesystem::path& filePath) : FilePath(filePath)
 {
-    nowide::ifstream solutionFile(filePath.c_str());
+    nowide::ifstream solutionFile(filePath.string().c_str());
     if (!solutionFile) {
-        throw std::runtime_error("Failed to read from file: " + filePath);
+        throw std::runtime_error("Failed to read from file: " + filePath.string());
     }
 
     std::ostringstream solutionFileContents;
@@ -155,22 +147,26 @@ VsSolution::VsSolution(const std::string& filePath) : FilePath(filePath)
     m_solutionFileContents = solutionFileContents.str();
 }
 
-std::tr2::sys::path VsSolution::getParentDir() const
+boost::filesystem::path VsSolution::getParentDir() const
 {
     return FilePath.parent_path();
 }
 
-VsSolutionList VsSolutionDependencyManager::ReorderDependencies(const VsSolutionList& solutions)
+bool VsSolutionDependencyManager::TopologicalSortSolutions(VsSolutionList& sortedSolutions, const VsSolutionList& solutions)
 {
-    namespace fs = std::tr2::sys;
+    namespace fs = boost::filesystem;
 
     VsSolutionList newSolutionList(solutions.begin(), solutions.end());
     for (auto solution : solutions) {
         for (const auto project : solution->Projects) {
             for (const auto& assemblyReference : project->AssemblyReferences) {
                 if (!assemblyReference->ParentProject) {
-                    __debugbreak();
+                    LOG_ERROR() << "Can't sort this solution because a project's assembly reference's parent project is missing. Solution: " << solution->FilePath.filename()
+                        << "; Project: " << project->FilePath.filename()
+                        << "; Assembly reference's hint-path: " << assemblyReference->HintPath.filename() << "\n";
+                    return false;
                 }
+
                 auto refProject = assemblyReference->ParentProject;
                 auto refSolution = refProject->ParentSolution;
                 auto refSolutionIt = std::find(newSolutionList.begin(), newSolutionList.end(), refSolution);
@@ -187,12 +183,13 @@ VsSolutionList VsSolutionDependencyManager::ReorderDependencies(const VsSolution
         }
     }
 
-    return newSolutionList;
+    sortedSolutions = newSolutionList;
+    return true;
 }
 
-bool VsSolutionDependencyManager::DiscoverDependencies(VsSolutionList& solutions)
+bool VsSolutionDependencyManager::ResolveAssemblyReferences(VsSolutionList& solutions, bool loadDependencies)
 {
-    namespace fs = std::tr2::sys;
+    namespace fs = boost::filesystem;
 
     // We'll append the discovered solutions to the initial ones
 
@@ -221,10 +218,13 @@ bool VsSolutionDependencyManager::DiscoverDependencies(VsSolutionList& solutions
                     // We do know about this solution already
                     parentSolution = *parentSolutionIt;
                 }
-                else {
+                else if (loadDependencies) {
                     // Not found in any of the search paths, but since we're discovering dependencies, we'll load them now
                     parentSolution = VsFileRepo::CreateSolution(parentSolutionFilePath);
                     solutions.emplace_back(parentSolution);
+                }
+                else {
+                    continue;
                 }
 
                 auto parentProjectIt = std::find_if(parentSolution->Projects.begin(), parentSolution->Projects.end(), [&parentProjectFilePath](const VsProjectPtr& comparedProject) -> bool {
@@ -236,11 +236,6 @@ bool VsSolutionDependencyManager::DiscoverDependencies(VsSolutionList& solutions
                     continue;
                 }
 
-                if (assemblyReference->HintPath.string().find("AppSettings") != std::string::npos) {
-                    __debugbreak();
-                }
-
-
                 auto parentProject = *parentProjectIt;
                 assemblyReference->ParentProject = parentProject;
             }
@@ -248,38 +243,11 @@ bool VsSolutionDependencyManager::DiscoverDependencies(VsSolutionList& solutions
     }
 
     return true;
-
-#if 0
-    fs::path refProjectFilePath;
-    if (!VsFileLocator::FindParentProjectForAssemblyReference(refProjectFilePath, assemblyReference->HintPath)) {
-        continue;
-    }
-
-    // We need to find the referenced project's parent solution
-    fs::path refSolutionFilePath;
-    if (!VsFileLocator::FindParentSolutionForProject(refSolutionFilePath, refProjectFilePath)) {
-        continue;
-    }
-
-    /*auto refSolution = VsFileRepo::HasLoadedSolution(refSolutionFilePath)
-    ? VsFileRepo::GetSolution(refSolutionFilePath)
-    : VsFileRepo::CreateSolution(refSolutionFilePath);
-
-    auto refProject = VsFileRepo::HasLoadedProject(refProjectFilePath)
-    ? VsFileRepo::GetProject(refProjectFilePath)
-    : VsFileRepo::CreateProject(refProjectFilePath, refSolution);*/
-
-    for (auto solution2 : solutions) {
-        if (refSolutionFilePath == solution2->FilePath) {
-
-        }
-    }
-#endif
 }
 
-bool VsFileLocator::FindSolutions(const std::tr2::sys::path directoryPath, std::deque<std::tr2::sys::path>& files)
+bool VsFileLocator::FindSolutions(const boost::filesystem::path directoryPath, std::deque<boost::filesystem::path>& files)
 {
-    namespace fs = std::tr2::sys;
+    namespace fs = boost::filesystem;
 
     if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
         return false;
@@ -295,7 +263,7 @@ bool VsFileLocator::FindSolutions(const std::tr2::sys::path directoryPath, std::
         }
 
         // Filter by file extension
-        std::string extension = it->path().extension();
+        std::string extension = it->path().extension().string();
         std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
         if (extension == ".sln") {
             files.push_back(it->path());
@@ -315,9 +283,9 @@ VsFileLocator::VsFileLocator()
 
 }
 
-bool VsFileLocator::FindParentProjectForAssemblyReference(std::tr2::sys::path& projectFilePath, const std::tr2::sys::path& assemblyHintPath)
+bool VsFileLocator::FindParentProjectForAssemblyReference(boost::filesystem::path& projectFilePath, const boost::filesystem::path& assemblyHintPath)
 {
-    namespace fs = std::tr2::sys;
+    namespace fs = boost::filesystem;
     fs::path dirtyHintPath(assemblyHintPath);
 
     // We need to find the referenced assembly's parent project
@@ -347,7 +315,7 @@ bool VsFileLocator::FindParentProjectForAssemblyReference(std::tr2::sys::path& p
             }
 
             // Filter by file extension
-            std::string extension = it->path().extension();
+            std::string extension = it->path().extension().string();
             std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
             if (extension != ".csproj") {
                 continue;
@@ -368,9 +336,9 @@ bool VsFileLocator::FindParentProjectForAssemblyReference(std::tr2::sys::path& p
     return true;
 }
 
-bool VsFileLocator::FindParentSolutionForProject(std::tr2::sys::path& solutionFilePath, const std::tr2::sys::path& projectFilePath)
+bool VsFileLocator::FindParentSolutionForProject(boost::filesystem::path& solutionFilePath, const boost::filesystem::path& projectFilePath)
 {
-    namespace fs = std::tr2::sys;
+    namespace fs = boost::filesystem;
     // We need to find the project's solution path
     // Solution files should in normal cases either reside alongside the project or reside in a folder above
     fs::path dirtyTestDir = projectFilePath;
@@ -397,7 +365,7 @@ bool VsFileLocator::FindParentSolutionForProject(std::tr2::sys::path& solutionFi
             }
 
             // Filter by file extension
-            std::string extension = it->path().extension();
+            std::string extension = it->path().extension().string();
             std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
             if (extension != ".sln") {
                 continue;
@@ -418,43 +386,29 @@ bool VsFileLocator::FindParentSolutionForProject(std::tr2::sys::path& solutionFi
     return true;
 }
 
-/*
-VsSolutionPtr VsFileRepo::GetSolution(const std::string& path)
+bool VsFileRepo::HasLoadedSolution(const boost::filesystem::path& filePath)
 {
-    auto it = m_solutionCache.find(path);
-    return (it != m_solutionCache.end()) ? it->second : std::make_shared<VsSolution>(path);
-}
-
-VsProjectPtr VsFileRepo::GetProject(const std::string& path)
-{
-    auto it = m_projectCache.find(path);
-    return (it != m_projectCache.end()) ? it->second : std::make_shared<VsProject>(path);
-}
-*/
-
-bool VsFileRepo::HasLoadedSolution(const std::string& filePath)
-{
-    auto it = m_solutionCache.find(filePath);
+    auto it = m_solutionCache.find(filePath.string());
     return it != m_solutionCache.end();
 }
 
-bool VsFileRepo::HasLoadedProject(const std::string& filePath)
+bool VsFileRepo::HasLoadedProject(const boost::filesystem::path& filePath)
 {
-    auto it = m_projectCache.find(filePath);
+    auto it = m_projectCache.find(filePath.string());
     return it != m_projectCache.end();
 }
 
-void VsFileRepo::RegisterSolution(const std::string& filePath, VsSolutionPtr solution)
+void VsFileRepo::RegisterSolution(const boost::filesystem::path& filePath, VsSolutionPtr solution)
 {
-    m_solutionCache[filePath] = solution;
+    m_solutionCache[filePath.string()] = solution;
 }
 
-void VsFileRepo::RegisterProject(const std::string& filePath, VsProjectPtr project)
+void VsFileRepo::RegisterProject(const boost::filesystem::path& filePath, VsProjectPtr project)
 {
-    m_projectCache[filePath] = project;
+    m_projectCache[filePath.string()] = project;
 }
 
-VsSolutionPtr VsFileRepo::CreateSolution(const std::string& filePath)
+VsSolutionPtr VsFileRepo::CreateSolution(const boost::filesystem::path& filePath)
 {
     auto solution = std::make_shared<VsSolution>(filePath);
     RegisterSolution(filePath, solution);
@@ -462,32 +416,24 @@ VsSolutionPtr VsFileRepo::CreateSolution(const std::string& filePath)
     return solution;
 }
 
-VsProjectPtr VsFileRepo::CreateProject(const std::string& filePath, VsSolutionPtr parentSolution)
+VsProjectPtr VsFileRepo::CreateProject(const boost::filesystem::path& filePath, VsSolutionPtr parentSolution)
 {
     auto project = std::make_shared<VsProject>(filePath, parentSolution);
     RegisterProject(filePath, project);
     return project;
 }
 
-/*
-VsProjectPtr VsFileRepo::CreateProject(const std::string& filePath, VsSolution* parentSolution)
-{
-    auto project = std::make_shared<VsProject>(filePath, parentSolution);
-    RegisterProject(filePath, project);
-    return project;
-}*/
-
-VsSolutionPtr VsFileRepo::GetSolution(const std::string& filePath)
+VsSolutionPtr VsFileRepo::GetSolution(const boost::filesystem::path& filePath)
 {
     return HasLoadedSolution(filePath)
-        ? m_solutionCache[filePath]
+        ? m_solutionCache[filePath.string()]
         : VsSolutionPtr();
 }
 
-VsProjectPtr VsFileRepo::GetProject(const std::string& filePath)
+VsProjectPtr VsFileRepo::GetProject(const boost::filesystem::path& filePath)
 {
     return HasLoadedProject(filePath)
-        ? m_projectCache[filePath]
+        ? m_projectCache[filePath.string()]
         : VsProjectPtr();
 }
 
