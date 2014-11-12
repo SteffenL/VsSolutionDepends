@@ -99,7 +99,7 @@ int App::Run()
         std::deque<fs::path> solutionFiles;
         for (const auto& searchDir : searchDirs) {
             VsFileLocator locator;
-            if (!locator.FindSolutions(searchDir, solutionFiles)) {
+            if (!locator.FindSolutions(solutionFiles, searchDir, true)) {
                 nowide::cerr << "Failed to find all solutions.\n";
                 return 1;
             }
@@ -112,12 +112,12 @@ int App::Run()
 
         VsSolutionList solutions;
         for (const auto& solutionFilePath : solutionFiles) {
-            auto solution = VsFileRepo::CreateSolution(solutionFilePath);
+            auto solution = VsFileRepository::CreateSolution(solutionFilePath);
             solutions.emplace_back(solution);
         }
 
         // Resolve assembly references (and dependencies if needed)
-        VsSolutionDependencyManager::ResolveAssemblyReferences(solutions, !m_cmdLineArgs->GetWithoutDependencies());
+        VsSolutionDependencyHelper::ResolveAssemblyReferences(solutions, !m_cmdLineArgs->GetWithoutDependencies());
 
         if (m_cmdLineArgs->GetVerbose()) {
             // Display gathered information

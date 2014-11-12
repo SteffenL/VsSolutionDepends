@@ -86,11 +86,11 @@ public:
         solutions.emplace_back(s4);
 
         // Discover dependencies
-        VsSolutionDependencyManager::ResolveAssemblyReferences(solutions, false);
+        VsSolutionDependencyHelper::ResolveAssemblyReferences(solutions, false);
 
         // Reorder solutions
         VsSolutionList solutionOrders;
-        Assert::IsTrue(VsSolutionDependencyManager::TopologicalSortSolutions(solutionOrders, solutions));
+        Assert::IsTrue(VsSolutionDependencyHelper::TopologicalSortSolutions(solutionOrders, solutions));
 
         // Assert the correct order
         auto solutionOrderIt = solutionOrders.cbegin();
@@ -109,7 +109,7 @@ public:
         std::deque<boost::filesystem::path> files;
         for (const auto& searchDir : searchDirs) {
             VsFileLocator locator;
-            Assert::IsTrue(locator.FindSolutions(searchDir, files));
+            Assert::IsTrue(locator.FindSolutions(files, searchDir, true));
         }
 
         Assert::IsTrue(files.size() > 0);
@@ -125,7 +125,7 @@ public:
             std::deque<boost::filesystem::path> solutionFiles;
             for (const auto& searchDir : searchDirs) {
                 VsFileLocator locator;
-                Assert::IsTrue(locator.FindSolutions(searchDir, solutionFiles));
+                Assert::IsTrue(locator.FindSolutions(solutionFiles, searchDir, true));
             }
 
             Assert::IsTrue(solutionFiles.size() > 0);
@@ -133,16 +133,16 @@ public:
             {
                 VsSolutionList solutions;
                 for (const auto& solutionFilePath : solutionFiles) {
-                    auto solution = VsFileRepo::CreateSolution(solutionFilePath);
+                    auto solution = VsFileRepository::CreateSolution(solutionFilePath);
                     solutions.emplace_back(solution);
                 }
 
                 // Discover dependencies
-                VsSolutionDependencyManager::ResolveAssemblyReferences(solutions, false);
+                VsSolutionDependencyHelper::ResolveAssemblyReferences(solutions, false);
 
                 // Reorder solutions
                 VsSolutionList solutionOrders;
-                Assert::IsTrue(VsSolutionDependencyManager::TopologicalSortSolutions(solutionOrders, solutions));
+                Assert::IsTrue(VsSolutionDependencyHelper::TopologicalSortSolutions(solutionOrders, solutions));
 
                 // Print solution orders
                 Logger::WriteMessage("Insertion order:");

@@ -15,7 +15,7 @@ bool DependencyGraphFormatter::AsFlatList(std::ostream& stream, const FlatListOp
     namespace fs = boost::filesystem;
 
     VsSolutionList sortedSolutions;
-    if (!VsSolutionDependencyManager::TopologicalSortSolutions(sortedSolutions, m_solutions)) {
+    if (!VsSolutionDependencyHelper::TopologicalSortSolutions(sortedSolutions, m_solutions)) {
         LOG_ERROR() << "Failed to sort the solutions.\n";
         return false;
     }

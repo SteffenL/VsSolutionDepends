@@ -12,37 +12,15 @@
 #include <deque>
 #include <string>
 
-VsAssembly::~VsAssembly()
-{
+VsAssembly::~VsAssembly() {}
+VsAssembly::VsAssembly(const boost::filesystem::path& filePath) : FilePath(filePath) {}
 
-}
+VsAssemblyReference::~VsAssemblyReference() {}
+VsAssemblyReference::VsAssemblyReference(const boost::filesystem::path& hintPath, std::unique_ptr<VsAssembly> assembly) : HintPath(hintPath), Assembly(std::move(assembly)) {}
 
-VsAssembly::VsAssembly(const boost::filesystem::path& filePath) : FilePath(filePath)
-{
-
-}
-
-VsAssemblyReference::~VsAssemblyReference()
-{
-
-}
-
-VsAssemblyReference::VsAssemblyReference(const boost::filesystem::path& hintPath, std::unique_ptr<VsAssembly> assembly) : HintPath(hintPath), Assembly(std::move(assembly))
-{
-
-}
-
-VsProject::~VsProject()
-{
-
-}
+VsProject::~VsProject() {}
 
 VsProject::VsProject(const boost::filesystem::path& filePath, VsSolutionPtr parentSolution) : FilePath(filePath), ParentSolution(parentSolution)
-{
-    create();
-}
-
-void VsProject::create()
 {
     nowide::ifstream projectFile(FilePath.string().c_str());
     if (!projectFile) {
@@ -125,7 +103,7 @@ void VsSolution::LoadProjects(VsSolutionPtr selfPtr)
             continue;
         }
 
-        auto project = VsFileRepo::CreateProject(filePath.string(), selfPtr);
+        auto project = VsFileRepository::CreateProject(filePath.string(), selfPtr);
         Projects.emplace_back(project);
     }
 }
@@ -152,7 +130,7 @@ boost::filesystem::path VsSolution::getParentDir() const
     return FilePath.parent_path();
 }
 
-bool VsSolutionDependencyManager::TopologicalSortSolutions(VsSolutionList& sortedSolutions, const VsSolutionList& solutions)
+bool VsSolutionDependencyHelper::TopologicalSortSolutions(VsSolutionList& sortedSolutions, const VsSolutionList& solutions)
 {
     namespace fs = boost::filesystem;
 
@@ -187,7 +165,7 @@ bool VsSolutionDependencyManager::TopologicalSortSolutions(VsSolutionList& sorte
     return true;
 }
 
-bool VsSolutionDependencyManager::ResolveAssemblyReferences(VsSolutionList& solutions, bool loadDependencies)
+bool VsSolutionDependencyHelper::ResolveAssemblyReferences(VsSolutionList& solutions, bool loadDependencies)
 {
     namespace fs = boost::filesystem;
 
@@ -220,7 +198,7 @@ bool VsSolutionDependencyManager::ResolveAssemblyReferences(VsSolutionList& solu
                 }
                 else if (loadDependencies) {
                     // Not found in any of the search paths, but since we're discovering dependencies, we'll load them now
-                    parentSolution = VsFileRepo::CreateSolution(parentSolutionFilePath);
+                    parentSolution = VsFileRepository::CreateSolution(parentSolutionFilePath);
                     solutions.emplace_back(parentSolution);
                 }
                 else {
@@ -245,7 +223,7 @@ bool VsSolutionDependencyManager::ResolveAssemblyReferences(VsSolutionList& solu
     return true;
 }
 
-bool VsFileLocator::FindSolutions(const boost::filesystem::path directoryPath, std::deque<boost::filesystem::path>& files)
+bool VsFileLocator::FindSolutions(std::deque<boost::filesystem::path>& files, const boost::filesystem::path directoryPath, bool recurse)
 {
     namespace fs = boost::filesystem;
 
@@ -255,8 +233,10 @@ bool VsFileLocator::FindSolutions(const boost::filesystem::path directoryPath, s
 
     for (fs::directory_iterator it(directoryPath), end; it != end; ++it) {
         if (fs::is_directory(it->status())) {
-            if (!FindSolutions(it->path(), files)) {
-                return false;
+            if (recurse) {
+                if (!FindSolutions(files, it->path(), recurse)) {
+                    return false;
+                }
             }
 
             continue;
@@ -386,29 +366,29 @@ bool VsFileLocator::FindParentSolutionForProject(boost::filesystem::path& soluti
     return true;
 }
 
-bool VsFileRepo::HasLoadedSolution(const boost::filesystem::path& filePath)
+bool VsFileRepository::HasLoadedSolution(const boost::filesystem::path& filePath)
 {
     auto it = m_solutionCache.find(filePath.string());
     return it != m_solutionCache.end();
 }
 
-bool VsFileRepo::HasLoadedProject(const boost::filesystem::path& filePath)
+bool VsFileRepository::HasLoadedProject(const boost::filesystem::path& filePath)
 {
     auto it = m_projectCache.find(filePath.string());
     return it != m_projectCache.end();
 }
 
-void VsFileRepo::RegisterSolution(const boost::filesystem::path& filePath, VsSolutionPtr solution)
+void VsFileRepository::RegisterSolution(const boost::filesystem::path& filePath, VsSolutionPtr solution)
 {
     m_solutionCache[filePath.string()] = solution;
 }
 
-void VsFileRepo::RegisterProject(const boost::filesystem::path& filePath, VsProjectPtr project)
+void VsFileRepository::RegisterProject(const boost::filesystem::path& filePath, VsProjectPtr project)
 {
     m_projectCache[filePath.string()] = project;
 }
 
-VsSolutionPtr VsFileRepo::CreateSolution(const boost::filesystem::path& filePath)
+VsSolutionPtr VsFileRepository::CreateSolution(const boost::filesystem::path& filePath)
 {
     auto solution = std::make_shared<VsSolution>(filePath);
     RegisterSolution(filePath, solution);
@@ -416,27 +396,27 @@ VsSolutionPtr VsFileRepo::CreateSolution(const boost::filesystem::path& filePath
     return solution;
 }
 
-VsProjectPtr VsFileRepo::CreateProject(const boost::filesystem::path& filePath, VsSolutionPtr parentSolution)
+VsProjectPtr VsFileRepository::CreateProject(const boost::filesystem::path& filePath, VsSolutionPtr parentSolution)
 {
     auto project = std::make_shared<VsProject>(filePath, parentSolution);
     RegisterProject(filePath, project);
     return project;
 }
 
-VsSolutionPtr VsFileRepo::GetSolution(const boost::filesystem::path& filePath)
+VsSolutionPtr VsFileRepository::GetSolution(const boost::filesystem::path& filePath)
 {
     return HasLoadedSolution(filePath)
         ? m_solutionCache[filePath.string()]
         : VsSolutionPtr();
 }
 
-VsProjectPtr VsFileRepo::GetProject(const boost::filesystem::path& filePath)
+VsProjectPtr VsFileRepository::GetProject(const boost::filesystem::path& filePath)
 {
     return HasLoadedProject(filePath)
         ? m_projectCache[filePath.string()]
         : VsProjectPtr();
 }
 
-std::map<std::string, VsProjectPtr> VsFileRepo::m_projectCache;
+std::map<std::string, VsProjectPtr> VsFileRepository::m_projectCache;
 
-std::map<std::string, VsSolutionPtr> VsFileRepo::m_solutionCache;
+std::map<std::string, VsSolutionPtr> VsFileRepository::m_solutionCache;
