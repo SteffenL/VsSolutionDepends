@@ -7,7 +7,7 @@
 #include <string>
 #include <iosfwd>
 
-class DependencyGraphFormatter
+class DependencyMapFormatter
 {
 public:
     struct FlatListOptions
@@ -27,7 +27,7 @@ public:
         boost::filesystem::path BaseDir;
     };
 
-    DependencyGraphFormatter(const VsSolutionList& solutions);
+    DependencyMapFormatter(const VsSolutionList& solutions);
     bool AsFlatList(std::ostream& stream, const FlatListOptions& options) const;
 
 private:

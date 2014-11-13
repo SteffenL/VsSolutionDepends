@@ -174,7 +174,7 @@ class VsSolutionDependencyHelper
 public:
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
-    /// <summary>   Does a topological sort of the solution dependency graph. </summary>
+    /// <summary>   Does a topological sort of the solution dependency map. </summary>
     ///
     /// <param name="sortedSolutions">  [out] The sorted list of solutions. </param>
     /// <param name="solutions">        The non-sorted list of solutions. </param>
@@ -190,7 +190,7 @@ public:
     /// <remarks>
     ///     Actually, not the assemblies themselves are resolved, but rather the projects that
     ///     produce them, and those projects' parent solution. It's as simple as letting them know
-    ///     who owns it, to make the dependency graph complete. Dependencies are the solutions and
+    ///     who owns it, to make the dependency map complete. Dependencies are the solutions and
     ///     projects that own the produced assemblies that are being referenced. Loading dependencies
     ///     is useful when they aren't already loaded, and aren't in the search path. In this case,
     ///     loading dependencies will attempt to locate the project that produces the assembly, then
@@ -223,11 +223,26 @@ public:
     /// <param name="recurse">
     ///     true to process recursively, false to process locally only.
     /// </param>
+    /// <param name="maxResults">       (Optional) The maximum number of solutions to search for. </param>
     ///
     /// <returns>   true if it succeeds, false if it fails. </returns>
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    static bool FindSolutions(std::deque<boost::filesystem::path>& files, const boost::filesystem::path directoryPath, bool recurse);
+    static bool FindSolutions(std::deque<boost::filesystem::path>& files, const boost::filesystem::path& directoryPath, bool recurse, int maxResults = -1);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>   Searches for the first Visual Studio solution file. </summary>
+    ///
+    /// <param name="solutionFilePath"> [out] Full path to the found solution file. </param>
+    /// <param name="directoryPath">    Full path to a directory containing solutions. </param>
+    /// <param name="recurse">
+    ///     true to process recursively, false to process locally only.
+    /// </param>
+    ///
+    /// <returns>   true if it succeeds, false if it fails. </returns>
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool FindSingleSolution(boost::filesystem::path& solutionFilePath, const boost::filesystem::path& directoryPath, bool recurse);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     /// <summary>   Searches for the Visual Studio project that produces the .NET assembly being referenced. </summary>

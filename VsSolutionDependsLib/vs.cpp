@@ -223,7 +223,7 @@ bool VsSolutionDependencyHelper::ResolveAssemblyReferences(VsSolutionList& solut
     return true;
 }
 
-bool VsFileLocator::FindSolutions(std::deque<boost::filesystem::path>& files, const boost::filesystem::path directoryPath, bool recurse)
+bool VsFileLocator::FindSolutions(std::deque<boost::filesystem::path>& files, const boost::filesystem::path& directoryPath, bool recurse, int maxResults)
 {
     namespace fs = boost::filesystem;
 
@@ -231,6 +231,7 @@ bool VsFileLocator::FindSolutions(std::deque<boost::filesystem::path>& files, co
         return false;
     }
 
+    int currentResults = 0;
     for (fs::directory_iterator it(directoryPath), end; it != end; ++it) {
         if (fs::is_directory(it->status())) {
             if (recurse) {
@@ -247,21 +248,34 @@ bool VsFileLocator::FindSolutions(std::deque<boost::filesystem::path>& files, co
         std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
         if (extension == ".sln") {
             files.push_back(it->path());
+            ++currentResults;
+            if (currentResults >= maxResults) {
+                break;
+            }
         }
     }
 
     return true;
 }
 
-VsFileLocator::~VsFileLocator()
+bool VsFileLocator::FindSingleSolution(boost::filesystem::path& solutionFilePath, const boost::filesystem::path& directoryPath, bool recurse)
 {
+    std::deque<boost::filesystem::path> files;
+    bool result = FindSolutions(files, directoryPath, recurse, 1);
+    if (!result) {
+        return false;
+    }
 
+    if (files.empty()) {
+        return false;
+    }
+
+    solutionFilePath = files.front();
+    return true;
 }
 
-VsFileLocator::VsFileLocator()
-{
-
-}
+VsFileLocator::~VsFileLocator() {}
+VsFileLocator::VsFileLocator() {}
 
 bool VsFileLocator::FindParentProjectForAssemblyReference(boost::filesystem::path& projectFilePath, const boost::filesystem::path& assemblyHintPath)
 {
@@ -323,38 +337,13 @@ bool VsFileLocator::FindParentSolutionForProject(boost::filesystem::path& soluti
     // Solution files should in normal cases either reside alongside the project or reside in a folder above
     fs::path dirtyTestDir = projectFilePath;
     fs::path foundSolutionFilePath;
-    bool isDone = false;
-    while (!isDone) {
+    while (!dirtyTestDir.empty()) {
         dirtyTestDir = dirtyTestDir.parent_path();
-        if (dirtyTestDir.empty()) {
-            // Oops, went up too far in the tree
-            // TODO: Improve this so that we never go farther than necessary
-            isDone = true;
+        if (!FindSingleSolution(foundSolutionFilePath, dirtyTestDir, false)) {
             continue;
         }
 
-        if (!fs::exists(dirtyTestDir)) {
-            // The directory doesn't exist, so it's definitely not the project directory
-            continue;
-        }
-
-        // Try to find project files
-        for (fs::directory_iterator it(dirtyTestDir), end; it != end && !isDone; ++it) {
-            if (!fs::is_regular_file(it->status())) {
-                continue;
-            }
-
-            // Filter by file extension
-            std::string extension = it->path().extension().string();
-            std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-            if (extension != ".sln") {
-                continue;
-            }
-
-            // This should be the correct project directory
-            foundSolutionFilePath = it->path();
-            isDone = true;
-        }
+        break;
     }
 
     if (foundSolutionFilePath.empty()) {

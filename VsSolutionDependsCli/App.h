@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../VsSolutionDependsLib/vs.h"
-#include "DependencyGraphFormatter.h"
+#include "DependencyMapFormatter.h"
 
 #include <tclap/CmdLine.h>
 
@@ -12,14 +12,14 @@
 
 class App
 {
-    enum class DependencyGraphOutputFormat
+    enum class DependencyMapOutputFormat
     {
         FlatList
     };
 
-    struct DependencyGraphOutputOptions
+    struct DependencyMapOutputOptions
     {
-        DependencyGraphFormatter::FlatListOptions FlatList;
+        DependencyMapFormatter::FlatListOptions FlatList;
     };
 
     struct CmdLineArgs_t
@@ -46,7 +46,7 @@ class App
 
         bool GetWithoutDependencies() const;
         const std::vector<std::string>& GetSearchDirs() const;
-        DependencyGraphOutputFormat GetOutputFormat() const;
+        DependencyMapOutputFormat GetOutputFormat() const;
         std::string GetOutputFilePath() const;
         bool GetVerbose() const;
         const OutputFormatSpecific_t& GetOutputFormatSpecific() const;
@@ -58,7 +58,7 @@ class App
         std::unique_ptr<TCLAP::ValueArg<std::string>> m_outputFormat;
         std::unique_ptr<TCLAP::ValuesConstraint<std::string>> m_outputFormatConstraint;
         std::vector<std::string> m_outputFormatAllowedValues;
-        std::map<std::string, DependencyGraphOutputFormat> m_outputFormatAllowedMap;
+        std::map<std::string, DependencyMapOutputFormat> m_outputFormatAllowedMap;
         std::unique_ptr<TCLAP::SwitchArg> m_verbose;
 
         std::unique_ptr<TCLAP::ValueArg<std::string>> m_outputFilePath;
@@ -75,8 +75,8 @@ private:
     int m_argc;
     char** m_argv;
 
-    bool formatDependencyGraph(std::ostream& outStream, DependencyGraphOutputFormat format, const VsSolutionList& solutions, const DependencyGraphOutputOptions& options);
+    bool formatDependencyMap(std::ostream& outStream, DependencyMapOutputFormat format, const VsSolutionList& solutions, const DependencyMapOutputOptions& options);
     bool generateOutput(const VsSolutionList& solutions);
-    void setupFlatListOptions(DependencyGraphFormatter::FlatListOptions& options, const VsSolutionList& solutions);
+    void setupFlatListOptions(DependencyMapFormatter::FlatListOptions& options, const VsSolutionList& solutions);
     std::unique_ptr<CmdLineArgs_t> m_cmdLineArgs;
 };

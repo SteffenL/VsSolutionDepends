@@ -1,5 +1,5 @@
 #include "App.h"
-#include "DependencyGraphFormatter.h"
+#include "DependencyMapFormatter.h"
 #include "../VsSolutionDependsLib/vs.h"
 #include "../VsSolutionDependsLib/filesystem.h"
 
@@ -17,15 +17,15 @@ App::CmdLineArgs_t::CmdLineArgs_t(TCLAP::CmdLine& cmd)
     : m_outputFormatSpecific(cmd)
 {
     m_outputFormatAllowedValues = std::vector < std::string > { "flat" };
-    m_outputFormatAllowedMap = std::map<std::string, DependencyGraphOutputFormat>{
-            { "flat", DependencyGraphOutputFormat::FlatList }
+    m_outputFormatAllowedMap = std::map<std::string, DependencyMapOutputFormat>{
+            { "flat", DependencyMapOutputFormat::FlatList }
     };
 
     m_outputFormatConstraint = std::make_unique<TCLAP::ValuesConstraint<std::string>>(m_outputFormatAllowedValues);
 
     m_withoutDependencies = std::make_unique<TCLAP::SwitchArg>("", "without-dependencies", "Don't discover and load dependencies resolved from assembly references.", cmd, false);
     m_searchDirs = std::make_unique<TCLAP::MultiArg<std::string>>("d", "search-dir", "A root directory in which to search for solutions.", true, "string", cmd);
-    m_outputFormat = std::make_unique<TCLAP::ValueArg<std::string>>("f", "output-format", "Dependency graph output format.", false, "flat", m_outputFormatConstraint.get(), cmd);
+    m_outputFormat = std::make_unique<TCLAP::ValueArg<std::string>>("f", "output-format", "Dependency map output format.", false, "flat", m_outputFormatConstraint.get(), cmd);
     m_outputFilePath = std::make_unique<TCLAP::ValueArg<std::string>>("o", "output-file", "Output file path.", true, "", "string", cmd);
     m_verbose = std::make_unique<TCLAP::SwitchArg>("v", "verbose", "Be verbose in the output (useful info, warnings, etc).", cmd, false);
 }
@@ -40,7 +40,7 @@ const std::vector<std::string>& App::CmdLineArgs_t::GetSearchDirs() const
     return m_searchDirs->getValue();
 }
 
-App::DependencyGraphOutputFormat App::CmdLineArgs_t::GetOutputFormat() const
+App::DependencyMapOutputFormat App::CmdLineArgs_t::GetOutputFormat() const
 {
     return m_outputFormatAllowedMap.at(m_outputFormat->getValue());
 }
@@ -170,12 +170,12 @@ void App::parseCmdLine()
     }
 }
 
-bool App::formatDependencyGraph(std::ostream& outStream, DependencyGraphOutputFormat format, const VsSolutionList& solutions, const DependencyGraphOutputOptions& options)
+bool App::formatDependencyMap(std::ostream& outStream, DependencyMapOutputFormat format, const VsSolutionList& solutions, const DependencyMapOutputOptions& options)
 {
-    DependencyGraphFormatter formatter(solutions);
+    DependencyMapFormatter formatter(solutions);
 
     switch (format) {
-        case DependencyGraphOutputFormat::FlatList:
+        case DependencyMapOutputFormat::FlatList:
             return formatter.AsFlatList(outStream, options.FlatList);
 
         default:
@@ -188,10 +188,10 @@ bool App::formatDependencyGraph(std::ostream& outStream, DependencyGraphOutputFo
 bool App::generateOutput(const VsSolutionList& solutions)
 {
     namespace fs = boost::filesystem;
-    DependencyGraphOutputOptions options;
+    DependencyMapOutputOptions options;
 
     switch (m_cmdLineArgs->GetOutputFormat()) {
-    case DependencyGraphOutputFormat::FlatList:
+    case DependencyMapOutputFormat::FlatList:
         setupFlatListOptions(options.FlatList, solutions);
         break;
 
@@ -201,8 +201,8 @@ bool App::generateOutput(const VsSolutionList& solutions)
 
     // Generate desired output
     nowide::ofstream outStream(m_cmdLineArgs->GetOutputFilePath().c_str(), std::ios::binary);
-    if (!formatDependencyGraph(outStream, m_cmdLineArgs->GetOutputFormat(), solutions, options)) {
-        nowide::cerr << "Failed to generate a formatted dependency graph." << std::endl;
+    if (!formatDependencyMap(outStream, m_cmdLineArgs->GetOutputFormat(), solutions, options)) {
+        nowide::cerr << "Failed to generate a formatted dependency map." << std::endl;
         // Don't leave failed results
         outStream.close();
         fs::remove(fs::path(m_cmdLineArgs->GetOutputFilePath()));
@@ -212,11 +212,11 @@ bool App::generateOutput(const VsSolutionList& solutions)
     return true;
 }
 
-void App::setupFlatListOptions(DependencyGraphFormatter::FlatListOptions& options, const VsSolutionList& solutions)
+void App::setupFlatListOptions(DependencyMapFormatter::FlatListOptions& options, const VsSolutionList& solutions)
 {
     const auto& flatListArgs = m_cmdLineArgs->GetOutputFormatSpecific().GetFlatList();
     if (!flatListArgs.GetBaseDir().empty()) {
-        options.Flags |= DependencyGraphFormatter::FlatListOptions::Flag::UseBaseDir;
+        options.Flags |= DependencyMapFormatter::FlatListOptions::Flag::UseBaseDir;
         options.BaseDir = flatListArgs.GetBaseDir();
     }
 }

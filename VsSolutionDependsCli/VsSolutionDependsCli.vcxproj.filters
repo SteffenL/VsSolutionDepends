@@ -21,7 +21,7 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DependencyGraphFormatter.cpp">
+    <ClCompile Include="DependencyMapFormatter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -31,6 +31,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="DependencyGraphFormatter.h" />
+    <None Include="DependencyMapFormatter.h" />
   </ItemGroup>
 </Project>

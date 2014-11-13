@@ -84,14 +84,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="App.cpp" />
-    <ClCompile Include="DependencyGraphFormatter.cpp" />
+    <ClCompile Include="DependencyMapFormatter.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="App.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="DependencyGraphFormatter.h" />
+    <None Include="DependencyMapFormatter.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\VsSolutionDependsLib\VsSolutionDependsLib.vcxproj">

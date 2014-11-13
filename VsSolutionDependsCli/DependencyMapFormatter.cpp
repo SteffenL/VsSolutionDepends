@@ -1,16 +1,16 @@
-#include "DependencyGraphFormatter.h"
+#include "DependencyMapFormatter.h"
 #include "../VsSolutionDependsLib/log.h"
 #include "../VsSolutionDependsLib/filesystem.h"
 
 #include <iostream>
 #include <boost/filesystem.hpp>
 
-DependencyGraphFormatter::DependencyGraphFormatter(const VsSolutionList& solutions)
+DependencyMapFormatter::DependencyMapFormatter(const VsSolutionList& solutions)
     : m_solutions(solutions)
 {
 }
 
-bool DependencyGraphFormatter::AsFlatList(std::ostream& stream, const FlatListOptions& options) const
+bool DependencyMapFormatter::AsFlatList(std::ostream& stream, const FlatListOptions& options) const
 {
     namespace fs = boost::filesystem;
 
