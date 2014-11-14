@@ -117,8 +117,8 @@ public:
     TEST_METHOD(Everything)
     {
         std::deque<std::string> searchDirs;
-        searchDirs.push_back("C:\\Users\\Steffen\\Desktop\\RA_vs2013\\COMMON");
-        searchDirs.push_back("C:\\Users\\Steffen\\Desktop\\RA_vs2013\\SafeMedicalApplications");
+        searchDirs.push_back("..\\TestData\\Solutions\\Root1");
+        searchDirs.push_back("..\\TestData\\Solutions\\Root2");
 
         {
             std::deque<boost::filesystem::path> solutionFiles;
@@ -126,7 +126,7 @@ public:
                 Assert::IsTrue(VsFileLocator::FindSolutions(solutionFiles, searchDir, true));
             }
 
-            Assert::IsTrue(solutionFiles.size() > 0);
+            Assert::IsTrue(!solutionFiles.empty());
 
             {
                 VsSolutionList solutions;
@@ -135,8 +135,10 @@ public:
                     solutions.emplace_back(solution);
                 }
 
+                VsSolutionHelper::RemoveUnresolvableAssemblyReferences(solutions);
                 // Discover dependencies
                 VsSolutionHelper::ResolveAssemblyReferences(solutions, false);
+                VsSolutionHelper::RemoveUnresolvableAssemblyReferences(solutions);
 
                 // Reorder solutions
                 VsSolutionList solutionOrders;
