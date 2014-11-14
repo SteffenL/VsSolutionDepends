@@ -1,4 +1,5 @@
 #include "filesystem.h"
+#include "log.h"
 
 #include <nowide/convert.hpp>
 
@@ -83,33 +84,12 @@ path make_relative(const path& base, const path& p)
 
     wchar_t relativePath_c[MAX_PATH] = { 0 };
     if (!::PathRelativePathToW(relativePath_c, nativeBasePath.native().c_str(), FILE_ATTRIBUTE_DIRECTORY, nativePath.native().c_str(), FILE_ATTRIBUTE_NORMAL)) {
+        LOG_ERROR() << "Failed to make a relative path for \"" << nativePath.string() << "\" using \"" << nativeBasePath.string() << "\" as the base directory.\n";
         throw std::runtime_error("Failed to make a relative path");
     }
 
-    path relativePath(nowide::narrow(relativePath_c));
+    path relativePath(relativePath_c);
     return relativePath;
 }
-
-/*
-path make_relative(path a_From, path a_To)
-{
-    a_From = absolute(a_From); a_To = absolute(a_To);
-    path ret;
-    path::const_iterator itrFrom(a_From.begin()), itrTo(a_To.begin());
-    // Find common base
-    for (path::const_iterator toEnd(a_To.end()), fromEnd(a_From.end()); itrFrom != fromEnd && itrTo != toEnd && equivalent(*itrFrom, *itrTo); ++itrFrom, ++itrTo);
-    // Navigate backwards in directory to reach previously found base
-    for (path::const_iterator fromEnd(a_From.end()); itrFrom != fromEnd; ++itrFrom)
-    {
-        if ((*itrFrom) != ".")
-            ret /= "..";
-    }
-    // Now navigate down the directory branch
-    //ret.append(itrTo, a_To.end());
-    for (auto it = itrTo; it != a_To.end(); ++it) {
-        ret.append(it->string());
-    }
-    return ret;
-}*/
 
 }}

@@ -50,6 +50,7 @@ class App
         std::string GetOutputFilePath() const;
         bool GetVerbose() const;
         const OutputFormatSpecific_t& GetOutputFormatSpecific() const;
+        std::string GetLogFilePath() const;
 
     private:
         std::unique_ptr<TCLAP::SwitchArg> m_withoutDependencies;
@@ -60,6 +61,7 @@ class App
         std::vector<std::string> m_outputFormatAllowedValues;
         std::map<std::string, DependencyMapOutputFormat> m_outputFormatAllowedMap;
         std::unique_ptr<TCLAP::SwitchArg> m_verbose;
+        std::unique_ptr<TCLAP::ValueArg<std::string>> m_logFilePath;
 
         std::unique_ptr<TCLAP::ValueArg<std::string>> m_outputFilePath;
 

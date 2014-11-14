@@ -15,15 +15,16 @@ bool DependencyMapFormatter::AsFlatList(std::ostream& stream, const FlatListOpti
     namespace fs = boost::filesystem;
 
     VsSolutionList sortedSolutions;
-    if (!VsSolutionDependencyHelper::TopologicalSortSolutions(sortedSolutions, m_solutions)) {
+    if (!VsSolutionHelper::TopologicallySortSolutions(sortedSolutions, m_solutions)) {
         LOG_ERROR() << "Failed to sort the solutions.\n";
         return false;
     }
 
     for (const auto solution : sortedSolutions) {
-        const fs::path& filePath = (options.Flags & FlatListOptions::Flag::UseBaseDir)
+        fs::path filePath = (options.Flags & FlatListOptions::Flag::UseBaseDir)
             ? fs::make_relative(options.BaseDir, solution->FilePath)
             : solution->FilePath;
+        filePath.make_preferred();
         stream << filePath.string() << std::endl;
     }
 

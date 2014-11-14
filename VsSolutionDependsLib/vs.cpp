@@ -11,6 +11,7 @@
 #include <regex>
 #include <deque>
 #include <string>
+#include <set>
 
 VsAssembly::~VsAssembly() {}
 VsAssembly::VsAssembly(const boost::filesystem::path& filePath) : FilePath(filePath) {}
@@ -27,11 +28,8 @@ VsProject::VsProject(const boost::filesystem::path& filePath, VsSolutionPtr pare
         throw std::runtime_error("Failed to read from file: " + FilePath.string());
     }
 
-    std::ostringstream projectFileContents;
-    projectFileContents << projectFile.rdbuf();
-
     pugi::xml_document doc;
-    pugi::xml_parse_result result = doc.load(projectFileContents.str().c_str());
+    pugi::xml_parse_result result = doc.load(projectFile);
     if (!result) {
         throw std::runtime_error("Failed to load project due to XML parsing error: " + FilePath.string() + ". Message: " + std::string(result.description()));
     }
@@ -47,17 +45,11 @@ void VsProject::loadAssemblyReferences(const pugi::xml_document& doc)
     // Exclude the assemblies that are in the GAC (Global Assembly Cache), such as framework assemblies
     // Exclusion is easy because there's no path specified for them
     for (auto& xpathNode : doc.select_nodes("/Project/ItemGroup/Reference/HintPath")) {
-        // Note: The hint-path can contain variables such as $(Configuration) (Debug, Release, etc), so we won't be able to accurately
+        // Note: The hint-path can contain variables such as $(Configuration) (Debug, Release, etc), so we won't be able to accurately determine the real location
         // Also, we must not trust that the file (generated output) exists
         fs::path assemblyHintPath = xpathNode.node().first_child().value();
         // Make the hint path absolute
         assemblyHintPath = fs::normalize(fs::complete(assemblyHintPath, projectDir));
-
-        // If this assembly doesn't have a parent project, we have no use for it
-        fs::path parentProjectFilePath;
-        if (!VsFileLocator::FindParentProjectForAssemblyReference(parentProjectFilePath, assemblyHintPath)) {
-            continue;
-        }
 
         // We can't truly know the real assembly file path, so don't blindly make it the actual path to the file
         // TODO: Perhaps figure out the real location of the assembly
@@ -72,7 +64,52 @@ boost::filesystem::path VsProject::getParentDir() const
     return FilePath.parent_path();
 }
 
-void VsSolution::LoadProjects(VsSolutionPtr selfPtr)
+bool VsProject::TestFile(const boost::filesystem::path& filePath)
+{
+    nowide::ifstream projectFile(filePath.string().c_str());
+    if (!projectFile) {
+        throw std::runtime_error("Failed to read from file: " + filePath.string());
+    }
+
+    std::ostringstream fileContents;
+    fileContents << projectFile.rdbuf();
+
+    pugi::xml_document doc;
+    pugi::xml_parse_result result = doc.load(fileContents.str().c_str());
+    if (!result) {
+        return false;
+    }
+
+    auto& node = doc.first_element_by_path("Project");
+    if (node.empty()) {
+        return false;
+    }
+
+    auto& attr = node.attribute("xmlns");
+    if (attr.empty()) {
+        return false;
+    }
+
+    if (std::string(attr.value()) != std::string("http://schemas.microsoft.com/developer/msbuild/2003")) {
+        return false;
+    }
+
+    return true;
+}
+
+bool VsProject::TestFileExtension(const boost::filesystem::path& filePath)
+{
+    // C#, VB, F#, JavaScript, Python
+    // JavaScript and Python disabled until more testing has been done
+    const std::set<const std::string> extensions{ ".csproj", ".vbproj", ".fsproj", /*".jsproj", ".pyproj"*/ };
+
+    // Usually, the file extension should gives us an idea which type of file it is
+    std::string extension = filePath.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+    return (extensions.find(extension) != extensions.end());
+}
+
+void VsSolution::LoadProjects(VsSolutionPtr self)
 {
     namespace fs = boost::filesystem;
     std::deque<fs::path> files;
@@ -91,27 +128,35 @@ void VsSolution::LoadProjects(VsSolutionPtr selfPtr)
         const auto& solutionDir = getParentDir();
         const fs::path filePath(solutionDir / relativeFilePath);
 
-        // Filter by file extension
-        std::string extension = filePath.extension().string();
-        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-        if (extension != ".csproj") {
+        // Must be a file, of course
+        if (!fs::is_regular_file(filePath)) {
             continue;
         }
 
         // Skip non-existent files, e.g. virtual solution folders
         if (!fs::exists(filePath)) {
+            LOG_ERROR() << "Can't load project because the file doesn't exist: " << filePath.string() << "\n";
             continue;
         }
 
-        auto project = VsFileRepository::CreateProject(filePath.string(), selfPtr);
+        // Do a quick test of the file
+        if (!VsProject::TestFileExtension(filePath)) {
+            // Just quickly skip files we don't recognize at first glance
+            continue;
+        }
+
+        // Do a slightly more thorough test of the file
+        if (!VsProject::TestFile(filePath)) {
+            LOG_ERROR() << "File wasn't recognized as a project: " << filePath.string() << "\n";
+            continue;
+        }
+
+        auto project = VsFileRepository::CreateProject(filePath.string(), self);
         Projects.emplace_back(project);
     }
 }
 
-VsSolution::~VsSolution()
-{
-
-}
+VsSolution::~VsSolution() {}
 
 VsSolution::VsSolution(const boost::filesystem::path& filePath) : FilePath(filePath)
 {
@@ -130,7 +175,7 @@ boost::filesystem::path VsSolution::getParentDir() const
     return FilePath.parent_path();
 }
 
-bool VsSolutionDependencyHelper::TopologicalSortSolutions(VsSolutionList& sortedSolutions, const VsSolutionList& solutions)
+bool VsSolutionHelper::TopologicallySortSolutions(VsSolutionList& sortedSolutions, const VsSolutionList& solutions)
 {
     namespace fs = boost::filesystem;
 
@@ -139,9 +184,9 @@ bool VsSolutionDependencyHelper::TopologicalSortSolutions(VsSolutionList& sorted
         for (const auto project : solution->Projects) {
             for (const auto& assemblyReference : project->AssemblyReferences) {
                 if (!assemblyReference->ParentProject) {
-                    LOG_ERROR() << "Can't sort this solution because a project's assembly reference's parent project is missing. Solution: " << solution->FilePath.filename()
-                        << "; Project: " << project->FilePath.filename()
-                        << "; Assembly reference's hint-path: " << assemblyReference->HintPath.filename() << "\n";
+                    LOG_ERROR() << "Can't sort this solution because a project's assembly reference's parent project is missing. Solution: " << solution->FilePath.filename().string()
+                        << "; Project: " << project->FilePath.filename().string()
+                        << "; Assembly reference: " << assemblyReference->HintPath.filename().string() << "\n";
                     return false;
                 }
 
@@ -165,7 +210,7 @@ bool VsSolutionDependencyHelper::TopologicalSortSolutions(VsSolutionList& sorted
     return true;
 }
 
-bool VsSolutionDependencyHelper::ResolveAssemblyReferences(VsSolutionList& solutions, bool loadDependencies)
+bool VsSolutionHelper::ResolveAssemblyReferences(VsSolutionList& solutions, bool loadDependencies)
 {
     namespace fs = boost::filesystem;
 
@@ -174,6 +219,11 @@ bool VsSolutionDependencyHelper::ResolveAssemblyReferences(VsSolutionList& solut
     for (auto solution : solutions) {
         for (const auto project : solution->Projects) {
             for (const auto& assemblyReference : project->AssemblyReferences) {
+                if (assemblyReference->ParentProject) {
+                    // No need to resolve this reference again, if that ever becomes a possibility
+                    continue;
+                }
+
                 // We need to find the assembly's parent project
                 fs::path parentProjectFilePath;
                 if (!VsFileLocator::FindParentProjectForAssemblyReference(parentProjectFilePath, assemblyReference->HintPath)) {
@@ -223,46 +273,44 @@ bool VsSolutionDependencyHelper::ResolveAssemblyReferences(VsSolutionList& solut
     return true;
 }
 
-bool VsFileLocator::FindSolutions(std::deque<boost::filesystem::path>& files, const boost::filesystem::path& directoryPath, bool recurse, int maxResults)
+void VsSolutionHelper::RemoveUnresolvableAssemblyReferences(VsSolutionList& solutions)
 {
     namespace fs = boost::filesystem;
 
-    if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
-        return false;
-    }
-
-    int currentResults = 0;
-    for (fs::directory_iterator it(directoryPath), end; it != end; ++it) {
-        if (fs::is_directory(it->status())) {
-            if (recurse) {
-                if (!FindSolutions(files, it->path(), recurse)) {
-                    return false;
+    for (auto solution : solutions) {
+        for (const auto project : solution->Projects) {
+            for (auto it = project->AssemblyReferences.begin(); it != project->AssemblyReferences.end();) {
+                const auto& assemblyReference = *it;
+                // If this assembly doesn't have a parent project, we have no use for it
+                fs::path parentProjectFilePath;
+                if (!VsFileLocator::FindParentProjectForAssemblyReference(parentProjectFilePath, assemblyReference->HintPath)) {
+                    // Remove the assembly reference
+                    it = project->AssemblyReferences.erase(it);
+                    continue;
                 }
-            }
 
-            continue;
-        }
-
-        // Filter by file extension
-        std::string extension = it->path().extension().string();
-        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-        if (extension == ".sln") {
-            files.push_back(it->path());
-            ++currentResults;
-            if (currentResults >= maxResults) {
-                break;
+                // The project owning the assembly being referenced was found
+                ++it;
             }
         }
     }
-
-    return true;
 }
 
-bool VsFileLocator::FindSingleSolution(boost::filesystem::path& solutionFilePath, const boost::filesystem::path& directoryPath, bool recurse)
+bool VsFileLocator::FindSolutions(std::deque<boost::filesystem::path>& files, const boost::filesystem::path& directoryPath, bool recurse, int maxResults)
+{
+    int currentResultCount = 0;
+    return FindFiles(files, directoryPath, recurse, currentResultCount, maxResults, [](const boost::filesystem::path& filePath) -> bool {
+        // Filter by file extension
+        std::string extension = filePath.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+        return (extension == ".sln");
+    });
+}
+
+bool VsFileLocator::FindSingleSolution(boost::filesystem::path& foundFilePath, const boost::filesystem::path& directoryPath, bool recurse)
 {
     std::deque<boost::filesystem::path> files;
-    bool result = FindSolutions(files, directoryPath, recurse, 1);
-    if (!result) {
+    if (!FindSolutions(files, directoryPath, recurse, 1)) {
         return false;
     }
 
@@ -270,14 +318,11 @@ bool VsFileLocator::FindSingleSolution(boost::filesystem::path& solutionFilePath
         return false;
     }
 
-    solutionFilePath = files.front();
+    foundFilePath = files.front();
     return true;
 }
 
-VsFileLocator::~VsFileLocator() {}
-VsFileLocator::VsFileLocator() {}
-
-bool VsFileLocator::FindParentProjectForAssemblyReference(boost::filesystem::path& projectFilePath, const boost::filesystem::path& assemblyHintPath)
+bool VsFileLocator::FindParentProjectForAssemblyReference(boost::filesystem::path& foundFilePath, const boost::filesystem::path& assemblyHintPath)
 {
     namespace fs = boost::filesystem;
     fs::path dirtyHintPath(assemblyHintPath);
@@ -287,71 +332,67 @@ bool VsFileLocator::FindParentProjectForAssemblyReference(boost::filesystem::pat
     // for this reason, we can go up one level until we find the project file
     fs::path dirtyTestDir = dirtyHintPath.parent_path();
     fs::path foundRefProjectFilePath;
-    bool isDone = false;
-    while (!isDone) {
+    do {
+        if (FindSingleProject(foundRefProjectFilePath, dirtyTestDir, false)) {
+            break;
+        }
+
         dirtyTestDir = dirtyTestDir.parent_path();
-        if (dirtyTestDir.empty()) {
-            // Oops, went up too far in the tree
-            // TODO: Improve this so that we never go farther than necessary
-            isDone = true;
-            continue;
-        }
-
-        if (!fs::exists(dirtyTestDir)) {
-            // The directory doesn't exist, so it's definitely not the project directory
-            continue;
-        }
-
-        // Try to find project files
-        for (fs::directory_iterator it(dirtyTestDir), end; it != end && !isDone; ++it) {
-            if (!fs::is_regular_file(it->status())) {
-                continue;
-            }
-
-            // Filter by file extension
-            std::string extension = it->path().extension().string();
-            std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-            if (extension != ".csproj") {
-                continue;
-            }
-
-            // This should be the correct project directory
-            foundRefProjectFilePath = it->path();
-            isDone = true;
-        }
-    }
+    } while (!dirtyTestDir.empty());
 
     if (foundRefProjectFilePath.empty()) {
         // The assembly's project path wasn't found
         return false;
     }
 
-    projectFilePath = foundRefProjectFilePath;
+    foundFilePath = foundRefProjectFilePath;
     return true;
 }
 
-bool VsFileLocator::FindParentSolutionForProject(boost::filesystem::path& solutionFilePath, const boost::filesystem::path& projectFilePath)
+bool VsFileLocator::FindParentSolutionForProject(boost::filesystem::path& foundFilePath, const boost::filesystem::path& projectFilePath)
 {
     namespace fs = boost::filesystem;
     // We need to find the project's solution path
     // Solution files should in normal cases either reside alongside the project or reside in a folder above
-    fs::path dirtyTestDir = projectFilePath;
+    fs::path dirtyTestDir = projectFilePath.parent_path();
     fs::path foundSolutionFilePath;
-    while (!dirtyTestDir.empty()) {
-        dirtyTestDir = dirtyTestDir.parent_path();
-        if (!FindSingleSolution(foundSolutionFilePath, dirtyTestDir, false)) {
-            continue;
+    do {
+        if (FindSingleSolution(foundSolutionFilePath, dirtyTestDir, false)) {
+            break;
         }
 
-        break;
-    }
+        dirtyTestDir = dirtyTestDir.parent_path();
+    } while (!dirtyTestDir.empty());
 
     if (foundSolutionFilePath.empty()) {
         // The project's solution path wasn't found
         return false;
     }
 
-    solutionFilePath = foundSolutionFilePath;
+    foundFilePath = foundSolutionFilePath;
+    return true;
+}
+
+bool VsFileLocator::FindProjects(std::deque<boost::filesystem::path>& files, const boost::filesystem::path& directoryPath, bool recurse, int maxResults)
+{
+    int currentResultCount = 0;
+    return FindFiles(files, directoryPath, recurse, currentResultCount, maxResults, [](const boost::filesystem::path& filePath) -> bool {
+        return VsProject::TestFileExtension(filePath);
+    });
+}
+
+bool VsFileLocator::FindSingleProject(boost::filesystem::path& foundFilePath, const boost::filesystem::path& directoryPath, bool recurse)
+{
+    std::deque<boost::filesystem::path> files;
+    if (!FindProjects(files, directoryPath, recurse, 1)) {
+        return false;
+    }
+
+    if (files.empty()) {
+        return false;
+    }
+
+    foundFilePath = files.front();
     return true;
 }
 

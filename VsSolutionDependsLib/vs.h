@@ -1,5 +1,7 @@
 #pragma once
 
+#include "FileLocator.h"
+
 #include <boost/filesystem.hpp>
 
 #include <string>
@@ -7,6 +9,7 @@
 #include <memory>
 #include <map>
 #include <list>
+#include <functional>
 
 namespace pugi { class xml_document; }
 
@@ -19,6 +22,7 @@ typedef std::shared_ptr<VsProject> VsProjectPtr;
 typedef std::shared_ptr<VsSolution> VsSolutionPtr;
 typedef std::deque<VsSolutionPtr> VsSolutionDeque;
 typedef std::list<VsSolutionPtr> VsSolutionList;
+typedef std::deque<std::unique_ptr<VsAssemblyReference>> VsAssemblyReferenceDeque;
 
 /// <summary>   Describes a .NET assembly. </summary>
 class VsAssembly
@@ -91,10 +95,30 @@ public:
     /// <summary>   Destructor. </summary>
     virtual ~VsProject();
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>   Tests the file contents to attempt recognize a project. </summary>
+    ///
+    /// <param name="filePath"> Full path to the file. </param>
+    ///
+    /// <returns>   true if the test passes, false if the test fails. </returns>
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool TestFile(const boost::filesystem::path& filePath);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>   Tests the file extension to attempt recognize a project. </summary>
+    ///
+    /// <param name="filePath"> Full path to the file. </param>
+    ///
+    /// <returns>   true if the test passes, false if the test fails. </returns>
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool TestFileExtension(const boost::filesystem::path& filePath);
+
     /// <summary>   Full path to the project file. </summary>
     boost::filesystem::path FilePath;
     /// <summary>   The assembly references in this project. </summary>
-    std::deque<std::unique_ptr<VsAssemblyReference>> AssemblyReferences;
+    VsAssemblyReferenceDeque AssemblyReferences;
     /// <summary>   The parent solution of this project. </summary>
     VsSolutionPtr ParentSolution;
 
@@ -136,13 +160,13 @@ public:
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     /// <summary>   Loads the projects in this solution. </summary>
     ///
-    /// <param name="selfPtr">
+    /// <param name="self">
     ///     This solution should be passed to each project so that they also know which solution is
     ///     their parent.
     /// </param>
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    void LoadProjects(VsSolutionPtr selfPtr);
+    void LoadProjects(VsSolutionPtr self);
 
     /// <summary>   Full path to the solution file. </summary>
     boost::filesystem::path FilePath;
@@ -165,16 +189,15 @@ private:
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 /// <summary>
-///     A helper class for things regarding dependency between Visual Studio solutions.
+///     A helper class for things regarding Visual Studio solutions.
 /// </summary>
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class VsSolutionDependencyHelper
+class VsSolutionHelper
 {
 public:
-
     ////////////////////////////////////////////////////////////////////////////////////////////////////
-    /// <summary>   Does a topological sort of the solution dependency map. </summary>
+    /// <summary>   Does a topologically sort a solution dependency map. </summary>
     ///
     /// <param name="sortedSolutions">  [out] The sorted list of solutions. </param>
     /// <param name="solutions">        The non-sorted list of solutions. </param>
@@ -182,7 +205,7 @@ public:
     /// <returns>   true if it succeeds, false if it fails. </returns>
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    static bool TopologicalSortSolutions(VsSolutionList& sortedSolutions, const VsSolutionList& solutions);
+    static bool TopologicallySortSolutions(VsSolutionList& sortedSolutions, const VsSolutionList& solutions);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     /// <summary>   Resolves assembly references in each project of each solution. </summary>
@@ -204,17 +227,24 @@ public:
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     static bool ResolveAssemblyReferences(VsSolutionList& solutions, bool loadDependencies);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>
+    ///     Removes the unresolvable assembly references in projects for each solution. Unresolvable
+    ///     assembly references are ones that can't be resolved to a specific Visual Studio project
+    ///     that produce the assemblies being referenced.
+    /// </summary>
+    ///
+    /// <param name="solutions">    [in,out] The solutions. </param>
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    static void RemoveUnresolvableAssemblyReferences(VsSolutionList& solutions);
 };
 
 /// <summary>   Helps searching for files related to Visual Studio. </summary>
-class VsFileLocator
+class VsFileLocator : public FileLocator
 {
 public:
-    /// <summary>   Default constructor. </summary>
-    VsFileLocator();
-    /// <summary>   Destructor. </summary>
-    ~VsFileLocator();
-
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     /// <summary>   Searches for Visual Studio solution files. </summary>
     ///
@@ -233,7 +263,7 @@ public:
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     /// <summary>   Searches for the first Visual Studio solution file. </summary>
     ///
-    /// <param name="solutionFilePath"> [out] Full path to the found solution file. </param>
+    /// <param name="foundFilePath">    [out] Full path to the found solution file. </param>
     /// <param name="directoryPath">    Full path to a directory containing solutions. </param>
     /// <param name="recurse">
     ///     true to process recursively, false to process locally only.
@@ -242,18 +272,49 @@ public:
     /// <returns>   true if it succeeds, false if it fails. </returns>
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    static bool FindSingleSolution(boost::filesystem::path& solutionFilePath, const boost::filesystem::path& directoryPath, bool recurse);
+    static bool FindSingleSolution(boost::filesystem::path& foundFilePath, const boost::filesystem::path& directoryPath, bool recurse);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
-    /// <summary>   Searches for the Visual Studio project that produces the .NET assembly being referenced. </summary>
+    /// <summary>   Searches for Visual Studio project files. </summary>
     ///
-    /// <param name="projectFilePath">  [out] Full pathname of the project file. </param>
-    /// <param name="assemblyHintPath"> Full pathname of the assembly hint file. </param>
+    /// <param name="files">            [out] The files that were found. </param>
+    /// <param name="directoryPath">    Full path to the root directory containing projects. </param>
+    /// <param name="recurse">
+    ///     true to process recursively, false to process locally only.
+    /// </param>
+    /// <param name="maxResults">       (Optional) The maximum number of projects to search for. </param>
     ///
     /// <returns>   true if it succeeds, false if it fails. </returns>
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    static bool FindParentProjectForAssemblyReference(boost::filesystem::path& projectFilePath, const boost::filesystem::path& assemblyHintPath);
+    static bool FindProjects(std::deque<boost::filesystem::path>& files, const boost::filesystem::path& directoryPath, bool recurse, int maxResults = -1);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>   Searches for the first Visual Studio project file. </summary>
+    ///
+    /// <param name="foundFilePath">    [out] Full path to the found project file. </param>
+    /// <param name="directoryPath">    Full path to a directory containing projects. </param>
+    /// <param name="recurse">
+    ///     true to process recursively, false to process locally only.
+    /// </param>
+    ///
+    /// <returns>   true if it succeeds, false if it fails. </returns>
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool FindSingleProject(boost::filesystem::path& foundFilePath, const boost::filesystem::path& directoryPath, bool recurse);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>
+    ///     Searches for the Visual Studio project that produces the .NET assembly being referenced.
+    /// </summary>
+    ///
+    /// <param name="foundFilePath">    [out] Full path to the project file. </param>
+    /// <param name="assemblyHintPath"> Hint path for the assembly reference. </param>
+    ///
+    /// <returns>   true if it succeeds, false if it fails. </returns>
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool FindParentProjectForAssemblyReference(boost::filesystem::path& foundFilePath, const boost::filesystem::path& assemblyHintPath);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     /// <summary>
@@ -261,20 +322,19 @@ public:
     ///     file.
     /// </summary>
     ///
-    /// <param name="solutionFilePath"> [out] Full path of the solution file. </param>
+    /// <param name="foundFilePath">    [out] Full path of the solution file. </param>
     /// <param name="projectFilePath">  Full path of the project file. </param>
     ///
     /// <returns>   true if it succeeds, false if it fails. </returns>
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    static bool FindParentSolutionForProject(boost::filesystem::path& solutionFilePath, const boost::filesystem::path& projectFilePath);
+    static bool FindParentSolutionForProject(boost::filesystem::path& foundFilePath, const boost::filesystem::path& projectFilePath);
 };
 
 /// <summary>   Repository of the loaded Visual Studio solutions, projects, etc. </summary>
 class VsFileRepository
 {
 public:
-
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     /// <summary>   Loads a solution file. </summary>
     ///

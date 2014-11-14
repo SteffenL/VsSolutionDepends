@@ -81,6 +81,9 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalLibraryDirectories>$(BOOSTDIR)\stage\lib</AdditionalLibraryDirectories>
     </Link>
+    <PostBuildEvent>
+      <Command>"%SIGNTOOL%" sign /d "VsSolutionDepends" /du "https://www.steffenl.com/" /f "%USERPROFILE%\Documents\Certificates\StartSSL\Class 2\Code\codesign.pfx" /t "http://timestamp.verisign.com/scripts/timestamp.dll" /v "$(TargetPath)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="App.cpp" />
@@ -89,6 +92,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="App.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="DependencyMapFormatter.h" />
@@ -97,6 +101,9 @@
     <ProjectReference Include="..\VsSolutionDependsLib\VsSolutionDependsLib.vcxproj">
       <Project>{86484204-3ef4-4d21-a120-547f31d8fa47}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="main.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

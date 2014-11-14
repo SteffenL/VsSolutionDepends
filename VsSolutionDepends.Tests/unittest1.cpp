@@ -86,11 +86,11 @@ public:
         solutions.emplace_back(s4);
 
         // Discover dependencies
-        VsSolutionDependencyHelper::ResolveAssemblyReferences(solutions, false);
+        VsSolutionHelper::ResolveAssemblyReferences(solutions, false);
 
         // Reorder solutions
         VsSolutionList solutionOrders;
-        Assert::IsTrue(VsSolutionDependencyHelper::TopologicalSortSolutions(solutionOrders, solutions));
+        Assert::IsTrue(VsSolutionHelper::TopologicallySortSolutions(solutionOrders, solutions));
 
         // Assert the correct order
         auto solutionOrderIt = solutionOrders.cbegin();
@@ -108,8 +108,7 @@ public:
 
         std::deque<boost::filesystem::path> files;
         for (const auto& searchDir : searchDirs) {
-            VsFileLocator locator;
-            Assert::IsTrue(locator.FindSolutions(files, searchDir, true));
+             Assert::IsTrue(VsFileLocator::FindSolutions(files, searchDir, true));
         }
 
         Assert::IsTrue(files.size() > 0);
@@ -124,8 +123,7 @@ public:
         {
             std::deque<boost::filesystem::path> solutionFiles;
             for (const auto& searchDir : searchDirs) {
-                VsFileLocator locator;
-                Assert::IsTrue(locator.FindSolutions(solutionFiles, searchDir, true));
+                Assert::IsTrue(VsFileLocator::FindSolutions(solutionFiles, searchDir, true));
             }
 
             Assert::IsTrue(solutionFiles.size() > 0);
@@ -138,11 +136,11 @@ public:
                 }
 
                 // Discover dependencies
-                VsSolutionDependencyHelper::ResolveAssemblyReferences(solutions, false);
+                VsSolutionHelper::ResolveAssemblyReferences(solutions, false);
 
                 // Reorder solutions
                 VsSolutionList solutionOrders;
-                Assert::IsTrue(VsSolutionDependencyHelper::TopologicalSortSolutions(solutionOrders, solutions));
+                Assert::IsTrue(VsSolutionHelper::TopologicallySortSolutions(solutionOrders, solutions));
 
                 // Print solution orders
                 Logger::WriteMessage("Insertion order:");

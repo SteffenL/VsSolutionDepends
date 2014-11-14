@@ -2,6 +2,7 @@
 #include "DependencyMapFormatter.h"
 #include "../VsSolutionDependsLib/vs.h"
 #include "../VsSolutionDependsLib/filesystem.h"
+#include "../VsSolutionDependsLib/log.h"
 
 #include <nowide/convert.hpp>
 #include <nowide/iostream.hpp>
@@ -28,6 +29,7 @@ App::CmdLineArgs_t::CmdLineArgs_t(TCLAP::CmdLine& cmd)
     m_outputFormat = std::make_unique<TCLAP::ValueArg<std::string>>("f", "output-format", "Dependency map output format.", false, "flat", m_outputFormatConstraint.get(), cmd);
     m_outputFilePath = std::make_unique<TCLAP::ValueArg<std::string>>("o", "output-file", "Output file path.", true, "", "string", cmd);
     m_verbose = std::make_unique<TCLAP::SwitchArg>("v", "verbose", "Be verbose in the output (useful info, warnings, etc).", cmd, false);
+    m_logFilePath = std::make_unique<TCLAP::ValueArg<std::string>>("", "log", "Logs to a file; useful for troubleshooting.", false, "", "string", cmd);
 }
 
 bool App::CmdLineArgs_t::GetWithoutDependencies() const
@@ -60,6 +62,11 @@ const App::CmdLineArgs_t::OutputFormatSpecific_t& App::CmdLineArgs_t::GetOutputF
     return m_outputFormatSpecific;
 }
 
+std::string App::CmdLineArgs_t::GetLogFilePath() const
+{
+    return m_logFilePath->getValue();
+}
+
 
 App::CmdLineArgs_t::OutputFormatSpecific_t::OutputFormatSpecific_t(TCLAP::CmdLine& cmd)
     : m_flatList(cmd)
@@ -89,6 +96,9 @@ int App::Run()
     try {
         parseCmdLine();
 
+        Logging::SetLogFilePath(m_cmdLineArgs->GetLogFilePath());
+        Logging::EnableLogging(!m_cmdLineArgs->GetLogFilePath().empty());
+
         namespace fs = boost::filesystem;
 
         std::deque<fs::path> searchDirs;
@@ -98,8 +108,7 @@ int App::Run()
 
         std::deque<fs::path> solutionFiles;
         for (const auto& searchDir : searchDirs) {
-            VsFileLocator locator;
-            if (!locator.FindSolutions(solutionFiles, searchDir, true)) {
+             if (!VsFileLocator::FindSolutions(solutionFiles, searchDir, true)) {
                 nowide::cerr << "Failed to find all solutions.\n";
                 return 1;
             }
@@ -116,8 +125,13 @@ int App::Run()
             solutions.emplace_back(solution);
         }
 
+        // Remove unresolvable assembly references so that we don't spend any extra time trying to resolve them
+        VsSolutionHelper::RemoveUnresolvableAssemblyReferences(solutions);
         // Resolve assembly references (and dependencies if needed)
-        VsSolutionDependencyHelper::ResolveAssemblyReferences(solutions, !m_cmdLineArgs->GetWithoutDependencies());
+        if (VsSolutionHelper::ResolveAssemblyReferences(solutions, !m_cmdLineArgs->GetWithoutDependencies())) {
+            // Remove unresolvable assembly references again
+            VsSolutionHelper::RemoveUnresolvableAssemblyReferences(solutions);
+        }
 
         if (m_cmdLineArgs->GetVerbose()) {
             // Display gathered information

@@ -94,10 +94,13 @@
   <ItemGroup>
     <ClCompile Include="..\thirdparty\nowide\src\iostream.cpp" />
     <ClCompile Include="..\thirdparty\pugixml-1.4\src\pugixml.cpp" />
+    <ClCompile Include="FileLocator.cpp" />
     <ClCompile Include="filesystem.cpp" />
+    <ClCompile Include="log.cpp" />
     <ClCompile Include="vs.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="FileLocator.h" />
     <ClInclude Include="filesystem.h" />
     <ClInclude Include="log.h" />
     <ClInclude Include="vs.h" />
